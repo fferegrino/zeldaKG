@@ -1,8 +1,8 @@
 from bs4 import BeautifulSoup, Comment
 
-def remove_tags(soup: BeautifulSoup, tags=['script', 'link'], remove_comments=True, copy=True):
+def remove_tags(soup: BeautifulSoup, tags=['script', 'link'], remove_comments=True, copy=True, parser="html5lib"):
     if copy:
-        soup = BeautifulSoup(str(soup),"lxml")
+        soup = BeautifulSoup(str(soup),parser)
     if remove_comments:
         for element in soup.find_all(string=lambda text:isinstance(text,Comment)):
             element.extract()
