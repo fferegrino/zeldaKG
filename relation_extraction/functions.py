@@ -1,4 +1,11 @@
 import numpy as np
+from slugify import slugify
+import re
+
+
+from urllib.parse import urlparse
+from urllib.parse import unquote
+
 
 def levenshtein(seq1, seq2):  
     size_x = len(seq1) + 1
@@ -24,3 +31,29 @@ def levenshtein(seq1, seq2):
                     matrix[x,y-1] + 1
                 )
     return (matrix[size_x - 1, size_y - 1])
+
+# Infoboxes
+
+def infobox_clean_url(url):
+    """
+    Clean the url to met the structure adopted for the dataset
+    """
+    parsed = urlparse(url)
+    path = unquote(parsed.path)
+    if path.startswith("../"):
+        path = path[3:]
+    path = path.replace("/", "%2F")
+    query = None if parsed.query == '' else parsed.query
+    fragment = None if parsed.fragment == '' else parsed.fragment
+    return (path, query, fragment)
+
+
+parentheses = re.compile("\(.+\)")
+
+def infobox_get_canonical_relation(label):
+    """
+    Canonicalize the relationship
+    """
+    lbl = re.sub(parentheses, '', label)
+    l =  slugify(lbl.strip(), separator='_')
+    return l.upper()

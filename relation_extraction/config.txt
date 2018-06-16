@@ -1,0 +1,2 @@
+wikia=/Users/antonioferegrino/corpora/zelda-wikia2-clean/
+gamepedia=/Users/antonioferegrino/corpora/zelda-gamepedia-clean/
