@@ -1,5 +1,5 @@
 from neo4j import GraphDatabase
-import pandas as pd
+import csv
 import os
 import json
 
@@ -8,6 +8,125 @@ def escape(string):
     # six years ago, but I'll leave it in place
     # just in case
     return json.dumps(string)[1:-1]
+
+
+def insert_other_appereances(driver):
+    relationship_template = """
+MATCH (from:ENTITY{{uri:"{from_uri}"}}),(to:ENTITY{{uri:"{to_uri}"}})
+MERGE (from)-[r:appears_in]->(to)
+""".strip()
+    
+    with driver.session() as session:
+        with open("relation_extraction/info/other_appereances.csv", "r") as f:
+            reader = csv.reader(f)
+            next(reader)
+            for (_, noun1, source, noun2) in reader:
+                session.run(
+                    relationship_template.format(
+                        from_uri=noun1, to_uri=noun2))
+
+def insert_hard_relationships(driver):
+    valid_prepositions = {'for', 'throughout', 'during', 'within', 'like', 'from', 'of', 'by', 'before', 'with', 'to', 'on', 'in'}
+    relationship_template = """
+MATCH (from:ENTITY{{uri:"{from_uri}"}}),(to:ENTITY{{uri:"{to_uri}"}})
+MERGE (from)-[r:appears_in{{verb:"{verb}", preposition:"{preposition}"}}]->(to)
+""".strip()
+    with driver.session() as session:
+        with open("relation_extraction/info/hard_relationships.csv", "r") as f:
+            reader = csv.reader(f)
+            next(reader)
+            for (_, noun1, verb, relationship, preposition, noun2) in reader:
+                session.run("""MATCH (e1:ENTITY{{uri:"{noun1}"}})
+                            SET e1:{relationship}
+                            RETURN e1""".format(
+                                relationship=relationship.upper(),
+                                noun1=noun1
+                            ))
+                if preposition in valid_prepositions:
+                    session.run(
+                        relationship_template.format(
+                        from_uri=noun1, to_uri=noun2, verb=verb.lower(), relationship=relationship.lower(), preposition=preposition.lower()))
+
+def insert_entities(driver):
+    create_template = """
+MERGE (e:ENTITY{{name:"{name}", uri:"{uri}"}})
+    ON CREATE
+        SET e.{source} = true
+    ON MATCH
+        SET e.{source} = true
+RETURN e
+    """.strip()
+
+    with driver.session() as session:
+        session.run("CREATE INDEX FOR (e:ENTITY) ON (e.name)")
+        session.run("CREATE INDEX FOR (e:ENTITY) ON (e.uri)")
+
+        with open("relation_extraction/info/entities.wikia.csv", "r") as f:
+            reader = csv.reader(f)
+            next(reader)
+            for row in reader:
+                session.run(create_template.format(name=escape(row[1]), uri=row[2], source="wikia"))
+        
+        with open("relation_extraction/info/entities.gamepedia.csv", "r") as f:
+            reader = csv.reader(f)
+            next(reader)
+            for row in reader:
+                session.run(create_template.format(name=escape(row[1]), uri=row[2], source="gamepedia"))
+
+def insert_genders(driver):
+    create_template = """
+MATCH (e:ENTITY{{uri:"{uri}"}})
+SET e.gender = "{gender}"
+RETURN e
+    """.strip()
+
+    with driver.session() as session:
+        with open("relation_extraction/info/genders.csv", "r") as f:
+            reader = csv.reader(f)
+            next(reader)
+            for row in reader:
+                session.run(create_template.format(uri=row[0], gender=row[1]))
+
+def insert_races(driver):
+    create_template = """
+MATCH (from:ENTITY{{uri:"{from_uri}"}}),(to:ENTITY{{uri:"{to_uri}"}})
+SET to:RACE
+MERGE (from)-[r:is]->(to)
+    """.strip()
+
+    with driver.session() as session:
+        with open("relation_extraction/info/race.csv", "r") as f:
+            reader = csv.reader(f)
+            next(reader)
+            for row in reader:
+                session.run(create_template.format(from_uri=row[0], to_uri=row[1]))
+
+def insert_kindred(driver):
+    create_template = """
+MATCH (from:ENTITY{{uri:"{from_uri}"}}),(to:ENTITY{{uri:"{to_uri}"}})
+MERGE (from)-[r:related_to{{relation:"{relation}"}}]->(to)
+    """.strip()
+
+    with driver.session() as session:
+        with open("relation_extraction/info/kindred.csv", "r") as f:
+            reader = csv.reader(f)
+            next(reader)
+            for [subject, relation, object] in reader:
+                if relation:
+                    session.run(create_template.format(from_uri=subject, to_uri=object, relation=relation))
+
+def insert_locations(driver):
+    create_template = """
+MATCH (from:ENTITY{{uri:"{from_uri}"}}),(to:ENTITY{{uri:"{to_uri}"}})
+MERGE (from)-[r:{location}]->(to)
+    """.strip()
+
+    with driver.session() as session:
+        with open("relation_extraction/info/locations.csv", "r") as f:
+            reader = csv.reader(f)
+            next(reader)
+            for [from_uri, location, to_uri] in reader:
+                session.run(create_template.format(from_uri=from_uri, to_uri=to_uri, location=location.lower()))
 
 def main():
     host = os.environ['NEO4J_HOST']
@@ -20,65 +139,27 @@ def main():
     )
 
     with driver.session() as session:
-        nodes = session.run("MATCH (n:Entity) RETURN n LIMIT 25").data()
+        nodes = session.run("MATCH (n:ENTITY) RETURN n LIMIT 25").data()
 
     if nodes:
         print("There is data in the database")
         return 0
     
-    entities = pd.read_csv("relation_extraction/info/entities.csv", index_col=0)
-    create_template = "CREATE (e:Entity{name:\"%s\"})"
-    with driver.session() as session:
-        for _, row in entities.iterrows():
-            name = escape(row['name'])
-            insert_stmt = create_template % (name)
-            session.run(insert_stmt)
-        session.run("CREATE INDEX FOR (e:Entity) ON (e.name)")
+    insert_entities(driver)
 
-    
-    resources = pd.read_csv("relation_extraction/info/urls.csv", index_col=0)
-    create_template = "CREATE (e:Resource{uri:\"%s\"})"
-    with driver.session() as session:
-        for _, row in resources.iterrows():
-            url = row['url']
-            insert_stmt = create_template % (url) 
-            session.run(insert_stmt)
-        session.run("CREATE INDEX FOR (r:Resource) ON (r.uri)")
+    insert_hard_relationships(driver)
 
-    wikia_rels = pd.read_csv("relation_extraction/info/entities.wikia.csv", index_col=0)
-    gamepedia_rels = pd.read_csv("relation_extraction/info/entities.gamepedia.csv", index_col=0)
+    insert_other_appereances(driver)
 
-    relationship_template = """MATCH (from:Resource{uri:\"%s\"}),(to:Entity{name:\"%s\"})
-    MERGE (from)-[r:Represents]->(to)
-    SET r.%s=true"""
+    insert_genders(driver)
 
-    for site, rels in zip(["wikia","gamepedia"],[ wikia_rels, gamepedia_rels]):
-        print(site)
-        with driver.session() as session:
-            for i, row in rels.iterrows():
-                if (i+1 )% 1500 == 0:
-                    print(i)
-                try:
-                    name = escape(row['name'])
-                    relationship_stmt = relationship_template % (row['page'], name, site)
-                    session.run(relationship_stmt)
-                except Exception as inst:
-                    print("Error", i)
-                    print(inst)
-                    break
+    insert_races(driver)
 
-    hard_relationships = pd.read_csv("relation_extraction/info/hard_relationships.csv", index_col=0)
-    relationship_template = """MATCH (from:Resource{uri:\"%s\"}),(to:Resource{uri:\"%s\"})
-    MERGE (from)-[r:%s{verb:\"%s\",preposition:\"%s\"}]->(to)"""
-    with driver.session() as session:
-        for i, r in hard_relationships.iterrows():
-            one = r["url"]
-            verb = r["relation1"]
-            preposition = r["relation2"]
-            relation = r["attribute"]
-            two = r["related_url"]
-            create_stmt = relationship_template % (one, two, relation, verb, preposition)
-            session.run(create_stmt)
+    insert_kindred(driver)
+
+    insert_locations(driver)
+
+                
 
 
 if __name__ == "__main__":
