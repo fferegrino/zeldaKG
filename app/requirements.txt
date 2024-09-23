@@ -1,3 +1,0 @@
-openai
-neo4j
-streamlit
