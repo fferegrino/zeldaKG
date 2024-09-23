@@ -1,7 +1,8 @@
+import os
+
 import streamlit as st
 from dotenv import load_dotenv
 from zelda_kg import ZeldaKG, format_results_as_markdown_table
-import os
 
 load_dotenv()
 
@@ -13,7 +14,6 @@ st.title("Zelda Knowledge RAG with Knowledge Graph")
 
 
 if prompt := st.text_input("Enter a question"):
-
     system_message = kg.get_cypher_system_prompt()
     cypher_query = kg.get_candidate_cypher_query(prompt)
     results_query = kg.query_database(cypher_query)
@@ -33,4 +33,3 @@ if prompt := st.text_input("Enter a question"):
     with col2:
         st.markdown("### Results")
         st.markdown(formatted_results)
-

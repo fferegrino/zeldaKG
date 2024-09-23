@@ -1,5 +1,5 @@
-
 config = dict()
+
 
 def get_htmls_route(site):
     if not config:
@@ -8,4 +8,3 @@ def get_htmls_route(site):
                 l = line.split("=")
                 config[l[0]] = l[1].strip()
     return config.get(site, None)
-        
